@@ -1,26 +1,161 @@
 <template>
   <div>
-    <camera style="height: {{windowHeight}}px; widht: 100%;" flash="off">
+    <!-- 摄像头区域 -->
+    <camera style="height: {{windowHeight}}px; widht: 100%;" flash="off" :device-position="cameraPosition" v-if="showPhoto === false">
       <cover-view class="btn-container">
-        <cover-image src="/static/images/icon/reverse.png"></cover-image>
-        <cover-image src="/static/images/icon/camera.png"></cover-image>
-        <cover-image src="/static/images/icon/album.png"></cover-image>
+        <!-- 切换摄像头按钮 -->
+        <cover-image src="/static/images/icon/reverse.png" @tap="reverseCamera"></cover-image>
+        <!-- 拍照按钮 -->
+        <cover-image src="/static/images/icon/camera.png" @tap="takePhoto"></cover-image>
+        <!-- 从相册选取图片按钮 -->
+        <cover-image src="/static/images/icon/album.png" @tap="choosePhoto"></cover-image>
       </cover-view>
     </camera>
+    <!-- 照片区域 -->
+    <div v-else>
+      <image :src="src" style="width: 100%; height: {{windowHeight}}px; display: block;" mode="aspectFill"></image>
+      <div class="faceinfo-container" v-if="showFaceInfo">
+        <div class="faceinfo-row">
+          <text>年龄：{{faceInfo.age}}岁</text>
+          <text>性别：{{map.gender[faceInfo.gender.type]}}</text>
+        </div>
+        <div class="faceinfo-row">
+          <text>颜值：{{faceInfo.beauty}}分</text>
+          <text>表情：{{map.expression[faceInfo.expression.type]}}</text>
+        </div>
+        <div class="faceinfo-row">
+          <text>眼镜：{{map.glasses[faceInfo.glasses.type]}}</text>
+          <text>情绪：{{map.emotion[faceInfo.emotion.type]}}</text>
+        </div>
+      </div>
+      <button type="warn" class="rechoosePhoto-btn" @tap="rechoosePhoto">重选照片</button>
+    </div>
   </div>
 </template>
 
 <script>
 import wepy from '@wepy/core'
-import promisify from '@wepy/use-promisify'
-
-wepy.use(promisify)
 
 wepy.page({
   data: {
-    windowHeight: 0
+    windowHeight: 0,
+    cameraPosition: 'front',
+    src: '',
+    showPhoto: false,
+    showFaceInfo: false,
+    faceInfo: {},
+    map: {
+      gender: {
+        male: '男性',
+        female: '女性'
+      },
+      expression: {
+        none: '不笑',
+        smile: '微笑',
+        laugh: '大笑'
+      },
+      glasses: {
+        none: '无眼镜',
+        common: '普通眼镜',
+        sun: '墨镜'
+      },
+      emotion: {
+        angry:'愤怒', 
+        disgust: '厌恶', 
+        fear: '恐惧',
+        happy: '高兴', 
+        sad: '伤心', 
+        surprise: '惊讶', 
+        neutral: '无表情', 
+        pouty: '撅嘴', 
+        grimace: '鬼脸'
+      }
+    }
   },
-  methods: {},
+  methods: {
+    reverseCamera() {
+      this.cameraPosition = this.cameraPosition === 'front' ? 'back' : 'front'
+    },
+    takePhoto() {
+      const ctx = wx.createCameraContext()
+      ctx.takePhoto({
+        quality: 'high',
+        success: (res) => {
+          this.src = res.tempImagePath
+          console.log(this.src)
+          this.showPhoto = true
+          this.getFaceInfo()
+        },
+        fail: () => {
+          wepy.wx.showToast({
+            title: '拍照失败',
+            icon: 'none'
+          })
+          this.src = ''
+        }
+      })
+    },
+    choosePhoto() {
+      wx.chooseImage({
+        count: 1,
+        sizeType: ['original'],
+        sourceType: ['album'],
+        success: (res) => {
+          if (res.tempFilePaths.length <= 0) return
+          this.src = res.tempFilePaths[0]
+          console.log(this.src)
+          this.showPhoto = true
+          this.getFaceInfo()
+        },
+        fail: () => {
+          wepy.wx.showToast({
+            title: '选择照片失败',
+            icon: 'none'
+          })
+          this.src = ''
+        }
+      })
+    },
+    rechoosePhoto() {
+      this.showPhoto = false
+      this.src = ''
+      this.showFaceInfo = false
+    },
+    async getFaceInfo() {
+      const token = getApp().$wepy.$options.globalData.baiduToken
+      if (!token) return wepy.baseToast('权限鉴定失败')
+
+      wepy.wx.showLoading({
+        title: '正在处理中',
+        mask: true
+      })
+
+      // 把图片转换为base64格式
+      const fileSystemManager = wx.getFileSystemManager()
+      const fileString = fileSystemManager.readFileSync(this.src, 'base64')
+      // 请求面部识别数据
+      const { data: res } = await wepy.wx.request({
+        url: 'https://aip.baidubce.com/rest/2.0/face/v3/detect?access_token=' + token,
+        header: {
+          'Content-Type': 'application/json'
+        },
+        data: {
+          image: fileString,
+          image_type: 'BASE64',
+          face_field: 'age,beauty,expression,gender,glasses,emotion'
+        },
+        method: 'POST'
+      })
+
+      wepy.wx.hideLoading()
+      
+      if (res.error_msg !== 'SUCCESS') return wepy.baseToast(res.error_msg)
+      if (res.result.face_num <= 0) return wepy.baseToast('未检测到人脸')
+      this.faceInfo = res.result.face_list[0]
+      console.log(this.faceInfo)
+      this.showFaceInfo = true
+    }
+  },
   async onLoad() {
     const sysInfo = await wepy.wx.getSystemInfo()
     this.windowHeight = sysInfo.windowHeight
@@ -40,6 +175,32 @@ wepy.page({
   cover-image {
     width: 50px;
     height: 50px;
+  }
+}
+.rechoosePhoto-btn {
+  position: fixed;
+  bottom: 30px;
+  left: 50%;
+  transform: translateX(-50%);
+  box-shadow: 0 1px 5px #666;
+}
+.faceinfo-container {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 80%;
+  height: 200px;
+  background-color: rgba(255, 255, 255, 0.6);
+  border-radius: 5px;
+  box-shadow: 0 1px 5px #eee;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-around;
+  .faceinfo-row {
+    display: flex;
+    justify-content: space-around;
+    font-size: 13px;
   }
 }
 </style>

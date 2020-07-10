@@ -4,21 +4,26 @@
 
 <script>
 import wepy from '@wepy/core';
+import promisify from '@wepy/use-promisify'
+import '@/common/baseAPI.js'
 
+wepy.use(promisify)
 
 wepy.app({
-  hooks: {
-    
+  hooks: {},
+  async onLaunch() {
+    const res = await wepy.wx.request({
+      url: 'https://aip.baidubce.com/oauth/2.0/token?grant_type=client_credentials&client_id=xOGYcjhZBbn1jk5yfBNDqQGL&client_secret=27BaOAnoPKg2WGLIGUqGGYkt0IdWBgRR',
+      method: 'POST'
+    })
+    if (res.errMsg !== 'request:ok') return wepy.baseToast(res.errMsg)
+    this.$options.globalData.baiduToken = res.data.access_token
   },
-  onLaunch() {
-   
+  globalData: {
+    baiduToken: ''
   },
-
-  methods: {
-
-   
-  }
-});
+  methods: {}
+})
 </script>
 <config>
 {
